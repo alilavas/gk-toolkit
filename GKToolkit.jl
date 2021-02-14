@@ -15,7 +15,7 @@ end
 #-------------------------------------------------
 #-------------------------------------------------
 
-function measurestabilizer!(stab,g,stabsign=nothing,gsign=nothing)
+function measurestabilizer!(stab,g,stabsign=nothing)
     #ignores sign
     n=size(stab,1)
 
@@ -36,7 +36,7 @@ function measurestabilizer!(stab,g,stabsign=nothing,gsign=nothing)
         for i in noncummuting[2:end]
             stabsign[i]⊻=productsign(stab[i],stab[pivotindex])⊻stabsign[pivotindex]
         end
-        stabsign[pivotindex]=gsign
+        stabsign[pivotindex]=rand(0:1)
     end
 
     for i in noncummuting[2:end]
@@ -49,24 +49,53 @@ function measurestabilizer!(stab,g,stabsign=nothing,gsign=nothing)
 
     return
 end
+#-------------------------------------------------
+#-------------------------------------------------
+function rank2!(A)
+    m,n=size(A)
+    lastpivotcol=0
 
-#-------------------------------------------------
-#-------------------------------------------------
-function ghzstabilizer(n)
-    stab=zeros(UInt8,n,2n)
-    for i=1:n-1
-        stab[i,i+n]=0x01
-        stab[i,i+1+n]=0x01
+    for i in 1:m
+        for j in (lastpivotcol+1):n
+            if A[i,j]!=0
+                for jj in (j+1):n
+                    if A[i,jj]!=0
+                        A[i:end,jj].⊻=view(A,i:end,j)
+                    end
+                end
+                z2swapcol!(A,j,lastpivotcol+1,i)
+                lastpivotcol+=1
+                break
+            end
+        end
     end
-    stab[n,1:n]=ones(UInt8,n)
-    stabsign=zeros(UInt8,n)
-    return stab,stabsign
-end
 
+    return lastpivotcol
+end
+#-------------------------------------------------
+#-------------------------------------------------
+function z2swaprow!(A,i,j,leftcol=1)
+    if i!=j
+        A[i,leftcol:end].⊻=view(A,j,leftcol:end)
+        A[j,leftcol:end].⊻=view(A,i,leftcol:end)
+        A[i,leftcol:end].⊻=view(A,j,leftcol:end)
+    end
+    return
+end
+#-------------------------------------------------
+#-------------------------------------------------
+function z2swapcol!(A,i,j,toprow=1)
+    if i!=j
+        A[toprow:end,i].⊻=view(A,toprow:end,j)
+        A[toprow:end,j].⊻=view(A,toprow:end,i)
+        A[toprow:end,i].⊻=view(A,toprow:end,j)
+    end
+    return
+end
 #-------------------------------------------------
 #-------------------------------------------------
 function entanglement(stab,indices)
-    n,=size(stab)
+    n=size(stab,1)
     return rank2!(stab[:,[indices;indices.+n]])-length(indices)
 end
 #-------------------------------------------------
@@ -149,29 +178,7 @@ function apply4qubitUnitary!(stab,u,i,j,k,l)
 
     return
 end
-#-------------------------------------------------
-#-------------------------------------------------
-function rank2!(A)
-    m,n=size(A)
-    lastPivotCol=0
 
-    for i in 1:m
-        for j in (lastPivotCol+1):n
-            if A[i,j]!=0
-                for jj in (j+1):n
-                    if A[i,jj]!=0
-                        A[i:end,jj].⊻=A[i:end,j]
-                    end
-                end
-                z2SwapCol!(A,j,lastPivotCol+1,i)
-                lastPivotCol+=1
-                break
-            end
-        end
-    end
-
-    return lastPivotCol
-end
 #-------------------------------------------------
 #-------------------------------------------------
 function rowecholen2_cm!(A)
@@ -239,28 +246,7 @@ end
 #-------------------------------------------------
 #-------------------------------------------------
 
-#-------------------------------------------------
-#-------------------------------------------------
-function z2SwapRow!(A,i,j,leftCol=1)
-    if i!=j
-        A[i,leftCol:end].⊻=A[j,leftCol:end]
-        A[j,leftCol:end].⊻=A[i,leftCol:end]
-        A[i,leftCol:end].⊻=A[j,leftCol:end]
-    end
-    return
-end
-#-------------------------------------------------
-#-------------------------------------------------
-function z2SwapCol!(A,i,j,topRow=1)
-    if i!=j
-        A[topRow:end,i].⊻=A[topRow:end,j]
-        A[topRow:end,j].⊻=A[topRow:end,i]
-        A[topRow:end,i].⊻=A[topRow:end,j]
-    end
-    return
-end
-#-------------------------------------------------
-#-------------------------------------------------
+
 
 function rowecholen2_withM!(A)
 
@@ -494,7 +480,18 @@ function generateAllCliffordUnitaries(n)
     end
     return
 end
-
+#-------------------------------------------------
+#-------------------------------------------------
+function ghzstabilizer(n)
+    stab=zeros(UInt8,n,2n)
+    for i=1:n-1
+        stab[i,i+n]=1
+        stab[i,i+1+n]=1
+    end
+    stab[n,1:n]=ones(UInt8,n)
+    stabsign=zeros(UInt8,n)
+    return stab,stabsign
+end
 
 #-------------------------------------------------
 #-------------------------------------------------
