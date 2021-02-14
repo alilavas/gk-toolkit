@@ -7,7 +7,7 @@ function rank2!(A)
             if A[i,j]!=0
                 for jj in (j+1):n
                     if A[i,jj]!=0
-                        A[i:end,jj].⊻=view(A,i:end,j)
+                        A[i:end,jj].⊻=@view A[i:end,j]
                     end
                 end
                 z2swapcol!(A,j,lastpivotcol+1,i)
@@ -23,9 +23,9 @@ end
 #-------------------------------------------------
 function z2swaprow!(A,i,j,leftcol=1)
     if i!=j
-        A[i,leftcol:end].⊻=view(A,j,leftcol:end)
-        A[j,leftcol:end].⊻=view(A,i,leftcol:end)
-        A[i,leftcol:end].⊻=view(A,j,leftcol:end)
+        A[i,leftcol:end].⊻=@view A[j,leftcol:end]
+        A[j,leftcol:end].⊻=@view A[i,leftcol:end]
+        A[i,leftcol:end].⊻=@view A[j,leftcol:end]
     end
     return
 end
@@ -33,9 +33,9 @@ end
 #-------------------------------------------------
 function z2swapcol!(A,i,j,toprow=1)
     if i!=j
-        A[toprow:end,i].⊻=view(A,toprow:end,j)
-        A[toprow:end,j].⊻=view(A,toprow:end,i)
-        A[toprow:end,i].⊻=view(A,toprow:end,j)
+        A[toprow:end,i].⊻=@view A[toprow:end,j]
+        A[toprow:end,j].⊻=@view A[toprow:end,i]
+        A[toprow:end,i].⊻=@view A[toprow:end,j]
     end
     return
 end
@@ -74,5 +74,17 @@ function gaussianelimination_row(A)
     return transpose(AT),rank,[(j,i) for (i,j) in pivotsT],transpose(MT)
 end
 
+#-------------------------------------------------
+#-------------------------------------------------
+function possibleAssignments(k)
+    #returns  all possible bit strings of k bits, arranged in a 2^k x k matrix.
+    ns=zeros(Int8,2^k,k)
+    for i in 1:2^k
+        for j in 1:k
+            ns[i,j]=(i÷2^(j-1))%2
+        end
+    end
+    return ns
+end
 #-------------------------------------------------
 #-------------------------------------------------
