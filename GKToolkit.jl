@@ -51,6 +51,196 @@ function measurestabilizer!(stab,g,stabsign=nothing)
 end
 #-------------------------------------------------
 #-------------------------------------------------
+function randomunitary(n)
+
+    #generates a random unitary.
+    if n==1
+        xz=randomxzpair(1)
+        return reshape(xz,2,2)
+    else
+
+        xz=randomxzpair(n)
+        uprime=extendtounitary(xz[1:2n],xz[2n+1:end])
+
+        v=zeros(UInt8,2n,2n)
+        v[1,1]=1
+        v[n+1,n+1]=1
+        v[[2:n;n+2:2n],[2:n;n+2:2n]]=randomunitary(n-1)
+
+
+        return (uprime*v).%0x02
+    end
+
+end
+
+#-------------------------------------------------
+#-------------------------------------------------
+function randomxzpair(n)
+    xz=rand([0x00,0x01],4n)
+    while commute(xz[1:2n],xz[2n+1:4n])
+        xz=rand([0x00,0x01],4n)
+    end
+    return xz
+end
+#-------------------------------------------------
+#-------------------------------------------------
+function generateAllCliffordUnitaries(n)
+
+    #it returns them transposed now
+    if n==1
+        Us=[]
+        p=possibleAssignments(4)
+        for i in 1:size(p)[1]
+            if !commute(p[i,1:2],p[i,3:4])
+                push!(Us,reshape(p[i,:],2,2))
+            end
+        end
+        return Us
+    else
+        Us=[]
+        Vs=generateAllCliffordUnitaries(n-1)
+        V=zeros(Int8,2*n,2*n)
+        V[1,1]=1
+        V[n+1,n+1]=1
+        p=possibleAssignments(4*n)
+        for i in 1:size(p,1)
+            if !commute(p[i,1:2*n],p[i,2*n+1:end])
+                U_prime=extendToUnitary(p[i,1:2n],p[i,2n+1:end])
+                for v in Vs
+                    V[[2:n;n+2:2*n],[2:n;n+2:2*n]]=v
+                    U=(U_prime*V).%2
+                    push!(Us,U)
+                end
+            end
+        end
+        return Us
+    end
+    return
+end
+#-------------------------------------------------
+#-------------------------------------------------
+function extendtounitary(xn,zn)
+    #reeturn a unitary which maps x1to the given xn & z1 to the given zn
+
+
+    n=length(xn)÷2
+
+    if commute(xn,zn)
+        print("first vecotrs aren't anti-commuting!")
+        return nothing
+    end
+
+    #we start by a complete basis for Paulis and replace a pair with xn,zn.
+    #to choose which pair to replace we find a pair that appear non-trivially
+    #in xn & zn.
+    #this makes sure that the xbasis \cup zbasis form a complete set for Pauli strings on n qubits.
+
+    xbasis=hcat(Matrix{UInt8}(1I,n,n),zeros(UInt8,n,n))
+    zbasis=hcat(zeros(UInt8,n,n),Matrix{UInt8}(1I,n,n))
+
+    dependentindex=findfirst(i->!commute(xn[[i,i+n]],zn[[i,i+n]]),1:n)
+    xbasis[dependentindex,:]=xn
+    zbasis[dependentindex,:]=zn
+    z2swaprow!(xbasis,1,dependentindex)
+    z2swaprow!(zbasis,1,dependentindex)
+
+
+    #we now update other basises accordingly, such that [xi,xj]=[zi,zj]=0
+    #and {xi,zj}=0
+
+    for i=2:n
+
+        #finding Zi, assuming the commutation relations are satisfied by
+        #xj,zj pairs for j<i.
+
+
+        #make sure Zi commutes with Xj for j<i
+        for j=1:i-1
+            if !commute(zbasis[i,:],xbasis[j,:])
+                zbasis[i,:].⊻=zbasis[j,:]
+            end
+        end
+
+        #make sure Zi commutes with Zj for j<i
+        for j=1:i-1
+            if !commute(zbasis[i,:],zbasis[j,:])
+                zbasis[i,:].⊻=xbasis[j,:]
+            end
+        end
+
+
+        #find an Xj in the remaining baisis vectors that doesn't commute with Zi
+        #and name it Xi
+        #first search among the remaing Xs
+
+        foundaPair=false
+        for j=i:n
+            if !commute(zbasis[i,:],xbasis[j,:])
+                z2swaprow!(xbasis,j,i)
+                foundaPair=true
+                break
+            end
+        end
+        #if not found, search among the remaing Zs
+        if foundaPair==false
+            for j=i+1:n
+                if !commute(zbasis[i,:],zbasis[j,:])
+                    #swap the two
+                    zbasis[j,:].⊻=view(xbasis,i,:)
+                    xbasis[i,:].⊻=view(zbasis,j,:)
+                    zbasis[j,:].⊻=view(xbasis,i,:)
+                    foundaPair=true
+                    break
+                end
+            end
+            if foundaPair==false
+                println("$i, no non-commuting partner found!")
+                return nothing
+            end
+        end
+
+        #make sure Xi commutes with Xj for j<i
+        for j=1:i-1
+            if !commute(xbasis[i,:],xbasis[j,:])
+                xbasis[i,:].⊻=zbasis[j,:]
+            end
+        end
+
+        #make sure Xi commutes with Zj for j<i
+        for j=1:i-1
+            if !commute(xbasis[i,:],zbasis[j,:])
+                xbasis[i,:].⊻=xbasis[j,:]
+            end
+        end
+
+    end
+
+    return transpose(vcat(xbasis,zbasis))
+end
+#-------------------------------------------------
+#-------------------------------------------------
+
+function commute(O1,O2)
+    n=length(O1)÷2
+    return (dot(O1[1:n],O2[n+1:2n])+dot(O1[n+1:2n],O2[1:n]))%2==0
+end
+
+#-------------------------------------------------
+#-------------------------------------------------
+function ghzstabilizer(n)
+    stab=zeros(UInt8,n,2n)
+    for i=1:n-1
+        stab[i,i+n]=1
+        stab[i,i+1+n]=1
+    end
+    stab[n,1:n]=ones(UInt8,n)
+    stabsign=zeros(UInt8,n)
+    return stab,stabsign
+end
+
+
+#-------------------------------------------------
+#-------------------------------------------------
 function entanglement(stab,indices)
     n=size(stab,1)
     return rank2!(stab[:,[indices;indices.+n]])-length(indices)
@@ -195,107 +385,9 @@ function checkStab(X)
     end
     return true
 end
-#-------------------------------------------------
-#-------------------------------------------------
-function extendToUnitary(xn,zn)
-    #reeturn a unitary which maps x1to the given xn & z1 to the given zn
 
 
-    n=length(xn)÷2
 
-    if commute(xn,zn)
-        print("first vecotrs aren't anti-commuting!")
-        return nothing
-    end
-
-    #we start by a complete basis for Paulis and replace a pair with xn,zn.
-    #to choose which pair to replace we find a pair that appear non-trivially
-    #in xn & zn.
-    #this makes sure that the xbasis \cup zbasis form a complete set for Pauli strings on n qubits.
-
-    xbasis=hcat(Matrix{UInt8}(1I,n,n),zeros(UInt8,n,n))
-    zbasis=hcat(zeros(UInt8,n,n),Matrix{UInt8}(1I,n,n))
-
-    dependentindex=findfirst(i->!commute(xn[[i,i+n]],zn[[i,i+n]]),1:n)
-    xbasis[dependentindex,:]=xn
-    zbasis[dependentindex,:]=zn
-    z2swaprow!(xbasis,1,dependentindex)
-    z2swaprow!(zbasis,1,dependentindex)
-
-
-    #we now update other basises accordingly, such that [xi,xj]=[zi,zj]=0
-    #and {xi,zj}=0
-
-    for i=2:n
-        #finding Zi, assuming the commutation relations are satisfied by
-        #xj,zj pairs for j<i.
-
-        #make sure Zi commutes with Xj for j<i
-        for j=1:i-1
-            if !commute(zbasis[i,:],xbasis[j,:])
-                zbasis[i,:].⊻=zbasis[j,:]
-            end
-        end
-
-        #make sure Zi commutes with Zj for j<i
-        for j=1:i-1
-            if !commute(zbasis[i,:],zbasis[j,:])
-                zbasis[i,:].⊻=xbasis[j,:]
-            end
-        end
-
-
-        #find an Xj in the remaining baisis vectors that doesn't commute with Zi
-        #and name it Xi
-        #first search among the remaing Xs
-
-        foundaPair=false
-        for j=i:n
-            if !commute(zbasis[i,:],xbasis[j,:])
-                z2swaprow!(xbasis,j,i)
-                foundaPair=true
-                break
-            end
-        end
-        #if not found, search among the remaing Zs
-        if foundaPair==false
-            for j=i+1:n
-                if !commute(zbasis[i,:],zbasis[j,:])
-                    #swap the two
-                    zbasis[j,:].⊻=view(xbasis,i,:)
-                    xbasis[i,:].⊻=view(zbasis,j,:)
-                    zbasis[j,:].⊻=view(xbasis,i,:)
-                    foundaPair=true
-                    break
-                end
-            end
-            if foundaPair==false
-                println("no non-commuting partner found!")
-                return nothing
-            end
-        end
-
-        #make sure Xi commutes with Xj for j<i
-        for j=1:i-1
-            if !commute(xbasis[i,:],xbasis[j,:])
-                xbasis[i,:].⊻=zbasis[j,:]
-            end
-        end
-
-        #make sure Xi commutes with Zj for j<i
-        for j=1:i-1
-            if !commute(xbasis[i,:],zbasis[j,:])
-                zbasis[i,:].⊻=xbasis[j,:]
-            end
-        end
-
-    end
-
-    return transpose(vcat(xbasis,zbasis))
-end
-
-#-------------------------------------------------
-#-------------------------------------------------
 
 
 #-------------------------------------------------
@@ -310,95 +402,9 @@ function checkUnitarity(U)
     end
     return ca
 end
-#-------------------------------------------------
-#-------------------------------------------------
-function firstNZIdx(A)
-    for j in eachindex(A)
-        if A[j]!=0
-            return j
-        end
-    end
-    return 0
-end
-#-------------------------------------------------
-#-------------------------------------------------
-function lastNZIdx(A)
-    for j in length(A):-1:1
-        if A[j]!=0
-            return j
-        end
-    end
-    return 0
-end
-#-------------------------------------------------
-#-------------------------------------------------
-
-function commute(O1,O2)
-    n=length(O1)÷2
-    return (dot(O1[1:n],O2[n+1:2n])+dot(O1[n+1:2n],O2[1:n]))%2==0
-end
-
-#-------------------------------------------------
-#-------------------------------------------------
 
 
-function possibleAssignments(k)
-    ns=zeros(Int8,2^k,k)
-    for i in 1:2^k
-        for j in 1:k
-            ns[i,j]=(i÷2^(j-1))%2
-        end
-    end
-    return ns
-end
-#-------------------------------------------------
-#-------------------------------------------------
 
-function generateAllCliffordUnitaries(n)
-
-    #it returns them transposed now
-    if n==1
-        Us=[]
-        p=possibleAssignments(4)
-        for i in 1:size(p)[1]
-            if !commute(p[i,1:2],p[i,3:4])
-                push!(Us,reshape(p[i,:],2,2))
-            end
-        end
-        return Us
-    else
-        Us=[]
-        Vs=generateAllCliffordUnitaries(n-1)
-        V=zeros(Int8,2*n,2*n)
-        V[1,1]=1
-        V[n+1,n+1]=1
-        p=possibleAssignments(4*n)
-        for i in 1:size(p,1)
-            if !commute(p[i,1:2*n],p[i,2*n+1:end])
-                U_prime=extendToUnitary(p[i,1:2n],p[i,2n+1:end])
-                for v in Vs
-                    V[[2:n;n+2:2*n],[2:n;n+2:2*n]]=v
-                    U=(U_prime*V).%2
-                    push!(Us,U)
-                end
-            end
-        end
-        return Us
-    end
-    return
-end
-#-------------------------------------------------
-#-------------------------------------------------
-function ghzstabilizer(n)
-    stab=zeros(UInt8,n,2n)
-    for i=1:n-1
-        stab[i,i+n]=1
-        stab[i,i+1+n]=1
-    end
-    stab[n,1:n]=ones(UInt8,n)
-    stabsign=zeros(UInt8,n)
-    return stab,stabsign
-end
 
 #-------------------------------------------------
 #-------------------------------------------------
