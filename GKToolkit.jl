@@ -57,6 +57,15 @@ function entanglement(stab,indices)
 end
 #-------------------------------------------------
 #-------------------------------------------------
+function JMatrix(stabs,A)
+    m,n=size(stabs)
+    N=n÷2
+    j=stabs[:,A]*transpose(stabs[:,A.+N])
+    return (j+transpose(j)).%2
+end
+
+#-------------------------------------------------
+#-------------------------------------------------
 function localStabs(stab,A)
     m,n=size(stab)
     N=n÷2
@@ -93,36 +102,15 @@ end
 function ghzyield(stab,partition)
     m,n=size(stab)
 
-
     allparts=union(partition...)
-    # println(allparts)
     clusterStabs=localStabs(stab,allparts)
     lstabs=zeros(Int8,0,n)
 
-##    println("clr:$(rank2!(copy(clusterStabs)))")
     for part in partition
         lstabs=vcat(lstabs,localStabs(clusterStabs,setdiff(allparts,part)))
- #       println("lr:$(rank2!(copy(lstabs)))")
     end
-    r1=rank2!(clusterStabs)
-    r2=rank2!(lstabs)
- #   println("r1:$r1, \t r2:$r2")
-    return r1-r2
-end
-#-------------------------------------------------
-#-------------------------------------------------
-function ghzyield2(stab,partition)
-    m,n=size(stab)
 
-    allparts=union(partition...)
-    clusterStabs=localStabs(stab,allparts)
-    lstabs=zeros(Int8,0,n)
-
-
-    for part in partition
-        lstabs=independentStabs(vcat(lstabs,localStabs(clusterStabs,setdiff(allparts,part))))
-    end
-    return rank2!(localStabs(stab,allparts))-rank2!(lstabs)
+    return rank2!(clusterStabs)-rank2!(lstabs)
 end
 #-------------------------------------------------
 #-------------------------------------------------
@@ -168,17 +156,6 @@ end
 
 #-------------------------------------------------
 #-------------------------------------------------
-function gaussianelimination_row(A)
-    AT,rank,pivotsT,MT=gaussianelimination_col(transpose(A))
-
-    return transpose(AT),rank,[(j,i) for (i,j) in pivotsT],transpose(MT)
-end
-
-#-------------------------------------------------
-#-------------------------------------------------
-
-
-
 function rowecholen2_withM!(A)
 
     m,n=size(A)
@@ -202,20 +179,10 @@ function rowecholen2_withM!(A)
 
     return lastPivotRow,A[:,n+1:end]
 end
-
-
 #-------------------------------------------------
 #-------------------------------------------------
 
-function JMatrix(stabs,A)
-    m,n=size(stabs)
-    N=n÷2
-    j=stabs[:,A]*transpose(stabs[:,A.+N])
-    return (j+transpose(j)).%2
-end
 
-#-------------------------------------------------
-#-------------------------------------------------
 function checkStab(X)
     n=size(X,1)
     for i=1:n-1
@@ -230,98 +197,106 @@ function checkStab(X)
 end
 #-------------------------------------------------
 #-------------------------------------------------
-function extendToUnitary(X_n,Z_n)
-    n=length(X_n)÷2
-    p_idx=pivotIdx(X_n,Z_n)
+function extendToUnitary(xn,zn)
+    #reeturn a unitary which maps x1to the given xn & z1 to the given zn
 
-    if commute(X_n,Z_n)
+
+    n=length(xn)÷2
+
+    if commute(xn,zn)
         print("first vecotrs aren't anti-commuting!")
+        return nothing
     end
 
+    #we start by a complete basis for Paulis and replace a pair with xn,zn.
+    #to choose which pair to replace we find a pair that appear non-trivially
+    #in xn & zn.
+    #this makes sure that the xbasis \cup zbasis form a complete set for Pauli strings on n qubits.
 
-    X_basis=hcat(Matrix{Int8}(1I,n,n),zeros(Int8,n,n))
-    X_basis[p_idx,:]=X_n
-    z2SwapRow!(X_basis,1,p_idx)
+    xbasis=hcat(Matrix{UInt8}(1I,n,n),zeros(UInt8,n,n))
+    zbasis=hcat(zeros(UInt8,n,n),Matrix{UInt8}(1I,n,n))
 
-    Z_basis=hcat(zeros(Int8,n,n),Matrix{Int8}(1I,n,n))
-    Z_basis[p_idx,:]=Z_n
-    z2SwapRow!(Z_basis,1,p_idx)
+    dependentindex=findfirst(i->!commute(xn[[i,i+n]],zn[[i,i+n]]),1:n)
+    xbasis[dependentindex,:]=xn
+    zbasis[dependentindex,:]=zn
+    z2swaprow!(xbasis,1,dependentindex)
+    z2swaprow!(zbasis,1,dependentindex)
 
-    for i in 2:n
-        #finding Zi
+
+    #we now update other basises accordingly, such that [xi,xj]=[zi,zj]=0
+    #and {xi,zj}=0
+
+    for i=2:n
+        #finding Zi, assuming the commutation relations are satisfied by
+        #xj,zj pairs for j<i.
 
         #make sure Zi commutes with Xj for j<i
-        for j in 1:i-1
-            if !commute(Z_basis[i,:],X_basis[j,:])
-                Z_basis[i,:].⊻=Z_basis[j,:]
+        for j=1:i-1
+            if !commute(zbasis[i,:],xbasis[j,:])
+                zbasis[i,:].⊻=zbasis[j,:]
             end
         end
 
         #make sure Zi commutes with Zj for j<i
-        for j in 1:i-1
-            if !commute(Z_basis[i,:],Z_basis[j,:])
-                Z_basis[i,:].⊻=X_basis[j,:]
+        for j=1:i-1
+            if !commute(zbasis[i,:],zbasis[j,:])
+                zbasis[i,:].⊻=xbasis[j,:]
             end
         end
 
 
-        #find an Xj that doesn't commute with Zi, name it Xi
+        #find an Xj in the remaining baisis vectors that doesn't commute with Zi
+        #and name it Xi
         #first search among the remaing Xs
+
         foundaPair=false
-        for j in i:n
-            if !commute(Z_basis[i,:],X_basis[j,:])
-                z2SwapRow!(X_basis,j,i)
+        for j=i:n
+            if !commute(zbasis[i,:],xbasis[j,:])
+                z2swaprow!(xbasis,j,i)
                 foundaPair=true
                 break
             end
         end
         #if not found, search among the remaing Zs
         if foundaPair==false
-            for j in i+1:n
-                if !commute(Z_basis[i,:],Z_basis[j,:])
+            for j=i+1:n
+                if !commute(zbasis[i,:],zbasis[j,:])
                     #swap the two
-                    Z_basis[j,:].⊻=X_basis[i,:]
-                    X_basis[i,:].⊻=Z_basis[j,:]
-                    Z_basis[j,:].⊻=X_basis[i,:]
+                    zbasis[j,:].⊻=view(xbasis,i,:)
+                    xbasis[i,:].⊻=view(zbasis,j,:)
+                    zbasis[j,:].⊻=view(xbasis,i,:)
                     foundaPair=true
                     break
                 end
             end
             if foundaPair==false
                 println("no non-commuting partner found!")
+                return nothing
             end
         end
 
         #make sure Xi commutes with Xj for j<i
-        for j in 1:i-1
-            if !commute(X_basis[i,:],X_basis[j,:])
-                X_basis[i,:].⊻=Z_basis[j,:]
+        for j=1:i-1
+            if !commute(xbasis[i,:],xbasis[j,:])
+                xbasis[i,:].⊻=zbasis[j,:]
             end
         end
 
         #make sure Xi commutes with Zj for j<i
-        for j in 1:i-1
-            if !commute(X_basis[i,:],Z_basis[j,:])
-                X_basis[i,:].⊻=X_basis[j,:]
+        for j=1:i-1
+            if !commute(xbasis[i,:],zbasis[j,:])
+                zbasis[i,:].⊻=xbasis[j,:]
             end
         end
 
     end
 
-    return transpose(vcat(X_basis,Z_basis))
+    return transpose(vcat(xbasis,zbasis))
 end
 
 #-------------------------------------------------
 #-------------------------------------------------
-function pivotIdx(Sx,Sz)
-    n=length(Sx)÷2
-    for i in 1:n
-        if !commute(Sx[[i,i+n]],Sz[[i,i+n]])
-            return i
-        end
-    end
-    return 0
-end
+
 
 #-------------------------------------------------
 #-------------------------------------------------
@@ -360,7 +335,7 @@ end
 
 function commute(O1,O2)
     n=length(O1)÷2
-    return (dot(O1[1:n],O2[n+1:2*n])+dot(O1[n+1:2*n],O2[1:n]))%2==0
+    return (dot(O1[1:n],O2[n+1:2n])+dot(O1[n+1:2n],O2[1:n]))%2==0
 end
 
 #-------------------------------------------------
@@ -380,6 +355,7 @@ end
 #-------------------------------------------------
 
 function generateAllCliffordUnitaries(n)
+
     #it returns them transposed now
     if n==1
         Us=[]
@@ -399,7 +375,7 @@ function generateAllCliffordUnitaries(n)
         p=possibleAssignments(4*n)
         for i in 1:size(p,1)
             if !commute(p[i,1:2*n],p[i,2*n+1:end])
-                U_prime=extendToUnitary(p[i,1:2*n],p[i,2*n+1:end])
+                U_prime=extendToUnitary(p[i,1:2n],p[i,2n+1:end])
                 for v in Vs
                     V[[2:n;n+2:2*n],[2:n;n+2:2*n]]=v
                     U=(U_prime*V).%2

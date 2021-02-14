@@ -68,3 +68,11 @@ function gaussianelimination_col(A)
 end
 #-------------------------------------------------
 #-------------------------------------------------
+function gaussianelimination_row(A)
+    AT,rank,pivotsT,MT=gaussianelimination_col(transpose(A))
+
+    return transpose(AT),rank,[(j,i) for (i,j) in pivotsT],transpose(MT)
+end
+
+#-------------------------------------------------
+#-------------------------------------------------
