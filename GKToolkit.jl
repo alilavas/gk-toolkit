@@ -34,8 +34,7 @@ function measurestabilizer!(stab,g,stabsign=nothing)
     end
 
     for i in noncummuting[2:end]
-        stab[i,1:n].⊻=stab[pivotindex,1:n]
-        stab[i,n+1:2n].⊻=stab[pivotindex,n+1:2n]
+        stab[i,:].⊻=stab[pivotindex,:]
     end
 
     stab[pivotindex,:]=g
@@ -70,8 +69,8 @@ end
 #-------------------------------------------------
 function allcliffordunitaries(n)
 
-    #generates all random n-qubit Clifford unitaries. It's only viable for n<=3
-    #though. after that it get's too large a set.
+    #generates all n-qubit Clifford unitaries. It's only viable for n<=3
+    #though. after that it gets too large a set.
 
     if n==1
         us=[]
@@ -257,6 +256,11 @@ function ghzstabilizer(n)
     stab[n,1:n]=ones(UInt8,n)
     stabsign=zeros(UInt8,n)
     return stab,stabsign
+end
+#-------------------------------------------------
+#-------------------------------------------------
+function zproductstate(n)
+    return hcat(zeros(UInt8,n,n),Matrix{UInt8}(I,n,n))
 end
 #-------------------------------------------------
 #-------------------------------------------------
