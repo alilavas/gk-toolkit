@@ -10,22 +10,16 @@ include("z2algebra.jl")
 function productsign(a,b)
     #returns sign of a*b, when written in the standard form.
     n=length(a)÷2
-    return sum(a[n+1:end].⊻b[1:n])%2
+    return sum(a[n+1:end].*b[1:n])%0x02
 end
 #-------------------------------------------------
 #-------------------------------------------------
 
 function measurestabilizer!(stab,g,stabsign=nothing)
     #ignores sign
-    n=size(stab,1)
+    n=size(stab,2)÷2
 
-    gX=g[1:n]
-    gZ=g[n+1:2n]
-
-    stabX=view(stab,:,1:n)
-    stabZ=view(stab,:,n+1:2n)
-
-    noncummuting=findall(isodd,stabX*gZ+stabZ*gX)
+    noncummuting=findall(isodd,(@view stab[:,1:n])*g[n+1:2n].+@view(stab[:,n+1:2n])*g[1:n])
 
     if length(noncummuting)==0 return end
 
@@ -34,18 +28,17 @@ function measurestabilizer!(stab,g,stabsign=nothing)
 
     if !isnothing(stabsign)
         for i in noncummuting[2:end]
-            stabsign[i]⊻=productsign(stab[i],stab[pivotindex])⊻stabsign[pivotindex]
+            stabsign[i]⊻=productsign(stab[i,:],stab[pivotindex,:])⊻stabsign[pivotindex]
         end
         stabsign[pivotindex]=rand(0:1)
     end
 
     for i in noncummuting[2:end]
-        stabX[i,:].⊻=stabX[pivotindex,:]
-        stabZ[i,:].⊻=stabZ[pivotindex,:]
+        stab[i,1:n].⊻=stab[pivotindex,1:n]
+        stab[i,n+1:2n].⊻=stab[pivotindex,n+1:2n]
     end
 
-    stabX[pivotindex,:]=gX
-    stabZ[pivotindex,:]=gZ
+    stab[pivotindex,:]=g
 
     return
 end
@@ -53,7 +46,7 @@ end
 #-------------------------------------------------
 function randomunitary(n)
 
-    #generates a random unitary.
+    #generates a random n-qubit Clifford unitary.
     if n==1
         xz=randomxzpair(1)
         return reshape(xz,2,2)
@@ -75,53 +68,45 @@ end
 
 #-------------------------------------------------
 #-------------------------------------------------
-function randomxzpair(n)
-    xz=rand([0x00,0x01],4n)
-    while commute(xz[1:2n],xz[2n+1:4n])
-        xz=rand([0x00,0x01],4n)
-    end
-    return xz
-end
-#-------------------------------------------------
-#-------------------------------------------------
-function generateAllCliffordUnitaries(n)
+function allcliffordunitaries(n)
 
-    #it returns them transposed now
+    #generates all random n-qubit Clifford unitaries. It's only viable for n<=3
+    #though. after that it get's too large a set.
+
     if n==1
-        Us=[]
+        us=[]
         p=possibleAssignments(4)
-        for i in 1:size(p)[1]
+        for i in 1:size(p,1)
             if !commute(p[i,1:2],p[i,3:4])
-                push!(Us,reshape(p[i,:],2,2))
+                push!(us,reshape(p[i,:],2,2))
             end
         end
-        return Us
+        return us
     else
-        Us=[]
-        Vs=generateAllCliffordUnitaries(n-1)
-        V=zeros(Int8,2*n,2*n)
-        V[1,1]=1
-        V[n+1,n+1]=1
-        p=possibleAssignments(4*n)
+        us=[]
+        ws=allcliffordunitaries(n-1)
+        v=zeros(UInt8,2n,2n)
+        v[1,1]=1
+        v[n+1,n+1]=1
+        p=possibleAssignments(4n)
         for i in 1:size(p,1)
-            if !commute(p[i,1:2*n],p[i,2*n+1:end])
-                U_prime=extendToUnitary(p[i,1:2n],p[i,2n+1:end])
-                for v in Vs
-                    V[[2:n;n+2:2*n],[2:n;n+2:2*n]]=v
-                    U=(U_prime*V).%2
-                    push!(Us,U)
+            if !commute(p[i,1:2n],p[i,2n+1:end])
+                uprime=extendtounitary(p[i,1:2n],p[i,2n+1:end])
+                for w in ws
+                    v[[2:n;n+2:2n],[2:n;n+2:2n]]=w
+                    u=(uprime*v).%0x02
+                    push!(us,u)
                 end
             end
         end
-        return Us
+        return us
     end
     return
 end
 #-------------------------------------------------
 #-------------------------------------------------
 function extendtounitary(xn,zn)
-    #reeturn a unitary which maps x1to the given xn & z1 to the given zn
-
+    #return a unitary which maps x1to the given xn & z1 to the given zn
 
     n=length(xn)÷2
 
@@ -193,10 +178,6 @@ function extendtounitary(xn,zn)
                     break
                 end
             end
-            if foundaPair==false
-                println("$i, no non-commuting partner found!")
-                return nothing
-            end
         end
 
         #make sure Xi commutes with Xj for j<i
@@ -216,6 +197,46 @@ function extendtounitary(xn,zn)
     end
 
     return transpose(vcat(xbasis,zbasis))
+end
+
+#-------------------------------------------------
+#-------------------------------------------------
+function applyunitary!(stab,u,indices)
+    n=size(stab,2)÷2
+    stab[:,[indices;indices.+n]]=(view(stab,:,[indices;indices.+n])*u').%0x02
+    return
+end
+#-------------------------------------------------
+#-------------------------------------------------
+
+function applyunitary!(stab,u,indices,usign,stabsign)
+    n=size(stab,2)÷2
+
+    for i=1:size(stab,1)
+        js=findall(isequal(0x01),@view stab[i,[indices;indices.+n]])
+        if length(js)==0 continue end
+
+        img=u[:,js[1]]
+        sign=usign[js[1]]
+
+        for j in js[2:end]
+            sign⊻=usign[j]⊻ productsign(img,u[:,j])
+            img.⊻=u[:,j]
+        end
+
+        stabsign[i]⊻=sign
+        stab[i,[indices;indices.+n]]=img
+    end
+    return
+end
+#-------------------------------------------------
+#-------------------------------------------------
+function randomxzpair(n)
+    xz=rand([0x00,0x01],4n)
+    while commute(xz[1:2n],xz[2n+1:4n])
+        xz=rand([0x00,0x01],4n)
+    end
+    return xz
 end
 #-------------------------------------------------
 #-------------------------------------------------
@@ -237,8 +258,6 @@ function ghzstabilizer(n)
     stabsign=zeros(UInt8,n)
     return stab,stabsign
 end
-
-
 #-------------------------------------------------
 #-------------------------------------------------
 function entanglement(stab,indices)
@@ -253,7 +272,6 @@ function JMatrix(stabs,A)
     j=stabs[:,A]*transpose(stabs[:,A.+N])
     return (j+transpose(j)).%2
 end
-
 #-------------------------------------------------
 #-------------------------------------------------
 function localStabs(stab,A)
@@ -268,17 +286,6 @@ function localStabs(stab,A)
         return (M*stab)[r+1:m,:].%2
     end
 end
-
-#-------------------------------------------------
-#-------------------------------------------------
-function independentStabs(stab)
-    m,n=size(stab)
-    N=n÷2
-
-    r,M=rowecholen2_cm!(stab)
-    return (M*stab)[1:r,:].%2
-end
-
 #-------------------------------------------------
 #-------------------------------------------------
 function negativity(stabs,A,B)
@@ -294,7 +301,7 @@ function ghzyield(stab,partition)
 
     allparts=union(partition...)
     clusterStabs=localStabs(stab,allparts)
-    lstabs=zeros(Int8,0,n)
+    lstabs=zeros(UInt8,0,n)
 
     for part in partition
         lstabs=vcat(lstabs,localStabs(clusterStabs,setdiff(allparts,part)))
@@ -304,18 +311,8 @@ function ghzyield(stab,partition)
 end
 #-------------------------------------------------
 #-------------------------------------------------
-function apply4qubitUnitary!(stab,u,i,j,k,l)
-    #u.T is expected
-
-    N=size(stab,1)
-    stab[:,[i,j,k,l,i+N,j+N,k+N,l+N]]=(view(stab,:,[i,j,k,l,i+N,j+N,k+N,l+N])*u).%2
 
 
-    return
-end
-
-#-------------------------------------------------
-#-------------------------------------------------
 function rowecholen2_cm!(A)
     #julia save arrays in the colum major format, so to improve performance, the matrix is transposed first, then turned into column echolen form.
     m,n=size(A)
@@ -369,43 +366,6 @@ function rowecholen2_withM!(A)
 
     return lastPivotRow,A[:,n+1:end]
 end
-#-------------------------------------------------
-#-------------------------------------------------
-
-
-function checkStab(X)
-    n=size(X,1)
-    for i=1:n-1
-        for j=i+1:n
-            if !commute(X[i,:],X[j,:])
-                println("not a stabilizer!! $i $j")
-                return false
-            end
-        end
-    end
-    return true
-end
-
-
-
-
-
-#-------------------------------------------------
-#-------------------------------------------------
-function checkUnitarity(U)
-    m,=size(U)
-    ca=zeros(Int,m,m)
-    for i in 1:m
-        for j in 1:m
-            ca[i,j]=commute(U[i,:],U[j,:]) ? 0 : 1
-        end
-    end
-    return ca
-end
-
-
-
-
 #-------------------------------------------------
 #-------------------------------------------------
 function safe_savesnapshot(filename,fieldname,snapshot)
