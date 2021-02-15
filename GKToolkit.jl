@@ -19,7 +19,7 @@ function measurestabilizer!(stab,g,stabsign=nothing)
     #ignores sign
     n=size(stab,2)÷2
 
-    noncummuting=findall(isodd,(@view stab[:,1:n])*g[n+1:2n].+@view(stab[:,n+1:2n])*g[1:n])
+    noncummuting=findall(isodd,(@view stab[:,1:n])*g[n+1:2n].+(@view stab[:,n+1:2n])*g[1:n])
 
     if length(noncummuting)==0 return end
 
@@ -254,13 +254,89 @@ function ghzstabilizer(n)
         stab[i,i+1+n]=1
     end
     stab[n,1:n]=ones(UInt8,n)
-    stabsign=zeros(UInt8,n)
-    return stab,stabsign
+    return stab
 end
 #-------------------------------------------------
 #-------------------------------------------------
 function zproductstate(n)
     return hcat(zeros(UInt8,n,n),Matrix{UInt8}(I,n,n))
+end
+#-------------------------------------------------
+#-------------------------------------------------
+function stabnormalform(stab,stabsign)
+    #take and stabillilzer tableau and returns its normal form
+    #which is a fancy name for upper triangular stabilizer tableau or its
+    #row echolon form. The important part is that it keeps track of signs.
+
+    A=transpose(stab)
+    m,n=size(A)
+
+    pivots=[]
+    lastPivotCol=0
+
+    normalstabsign=copy(stabsign)
+
+
+    for i in 1:m
+        for j in (lastPivotCol+1):n
+            if A[i,j]!=0
+                push!(pivots,(i,lastPivotCol+1))
+                for jj in (j+1):n
+                    if A[i,jj]!=0
+                        A[i:end,jj].⊻=A[i:end,j]
+                        normalstabsign[jj].⊻=normalstabsign[j]⊻productsign(A[:,jj],A[:,j])
+                    end
+                end
+                z2swapcol!(A,j,lastPivotCol+1,i)
+                z2swaprow!(normalstabsign,j,lastPivotCol+1)
+                lastPivotCol+=1
+                break
+            end
+        end
+    end
+
+    rank=lastPivotCol
+
+    return transpose(A),normalstabsign,rank,[(j,i) for (i,j) in pivots]
+end
+#-------------------------------------------------
+#-------------------------------------------------
+function expectationvalue(stab,stabsign,s)
+    #computes the expectaion value of a Pauli string s on stabillilzer state stab,
+    #taking into acount the signs.
+
+    n=size(stab,2)÷2
+
+    if !isnothing(findfirst(isodd,(@view stab[:,1:n])*s[n+1:2n].+(@view stab[:,n+1:2n])*s[1:n])) || isnothing(findall(isequal(0x01),s))
+        return 0
+    end
+    normalstab,normalstabsign,rank,pivots=stabnormalform(stab,stabsign)
+
+    if rank!=n
+        println("error: stabilizer matrix is not full rank")
+    end
+
+
+    w=zeros(UInt8,n)
+
+    sort!(pivots,by=x->x[1])
+    for (i,j) in pivots
+        w[i]=s[j]⊻(w'*normalstab[:,j])%0x02
+    end
+
+    sign=0x00
+    img=normalstab[findfirst(isequal(0x01), w),:]
+    for i in (findall(isequal(0x01), w)[2:end])
+        sign⊻=productsign(img,normalstab[i,:])
+        img.⊻=normalstab[i,:]
+    end
+    sign⊻=(w'*normalstabsign)%0x02
+
+    if sum(img.⊻s)!=0x00
+        println("error: the measured stabilizer cannot be reconstructed!")
+    end
+
+    return 1-2*Int8(sign)
 end
 #-------------------------------------------------
 #-------------------------------------------------
