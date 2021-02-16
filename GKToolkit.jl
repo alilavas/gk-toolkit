@@ -340,6 +340,21 @@ function expectationvalue(stab,stabsign,s)
 end
 #-------------------------------------------------
 #-------------------------------------------------
+function addqubit(stab,q,stabsign=nothing)
+    #adds q disentangled qubits in |0> state to the stabilizer tableau
+    m,n=size(stab)
+    extendedstab=hcat(stab[:,1:n÷2],zeros(UInt8,m,q),stab[:,n÷2+1:end],zeros(UInt8,m,q))
+    extendedstab=vcat(extendedstab,zeros(UInt8,q,n+2q))
+    extendedstab[m+1:m+q,n+q+1:n+2q]=Matrix{UInt8}(I,q,q)
+    if isnothing(stabsign)
+        return extendedstab
+    else
+        return extendedstab,vcat(stabsign,zeros(UInt8,q))
+    end
+
+end
+#-------------------------------------------------
+#-------------------------------------------------
 function entanglement(stab,indices)
     n=size(stab,1)
     return rank2!(stab[:,[indices;indices.+n]])-length(indices)
