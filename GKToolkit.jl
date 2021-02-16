@@ -15,13 +15,19 @@ end
 #-------------------------------------------------
 #-------------------------------------------------
 
-function measurestabilizer!(stab,g,stabsign=nothing)
+function measurestabilizer!(stab,g,stabsign=nothing,outcome=false)
     #ignores sign
     n=size(stab,2)÷2
 
     noncummuting=findall(isodd,(@view stab[:,1:n])*g[n+1:2n].+(@view stab[:,n+1:2n])*g[1:n])
 
-    if length(noncummuting)==0 return end
+    if length(noncummuting)==0
+        if outcome
+            return expectationvalue(stab,g,stabsign)
+        else
+            return nothing
+        end
+    end
 
     pivotindex=noncummuting[1]
 
@@ -39,7 +45,11 @@ function measurestabilizer!(stab,g,stabsign=nothing)
 
     stab[pivotindex,:]=g
 
-    return
+    if outcome
+        return Int(1-2*stabsign[pivotindex])
+    else
+        return nothing
+    end
 end
 #-------------------------------------------------
 #-------------------------------------------------
@@ -268,14 +278,14 @@ function stabnormalform(stab,stabsign)
     #which is a fancy name for upper triangular stabilizer tableau or its
     #row echolon form. The important part is that it keeps track of signs.
 
-    A=transpose(stab)
+    A=transpose(copy(stab))
     m,n=size(A)
 
     pivots=[]
     lastPivotCol=0
 
-    normalstabsign=copy(stabsign)
 
+    normalstabsign=copy(stabsign)
 
     for i in 1:m
         for j in (lastPivotCol+1):n
@@ -284,7 +294,7 @@ function stabnormalform(stab,stabsign)
                 for jj in (j+1):n
                     if A[i,jj]!=0
                         A[i:end,jj].⊻=A[i:end,j]
-                        normalstabsign[jj].⊻=normalstabsign[j]⊻productsign(A[:,jj],A[:,j])
+                        normalstabsign[jj]⊻=normalstabsign[j]⊻productsign(A[:,jj],A[:,j])
                     end
                 end
                 z2swapcol!(A,j,lastPivotCol+1,i)
@@ -301,7 +311,7 @@ function stabnormalform(stab,stabsign)
 end
 #-------------------------------------------------
 #-------------------------------------------------
-function expectationvalue(stab,stabsign,s)
+function expectationvalue(stab,s,stabsign)
     #computes the expectaion value of a Pauli string s on stabillilzer state stab,
     #taking into acount the signs.
 
