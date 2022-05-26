@@ -280,4 +280,32 @@ end
 
 #-------------------------------------------------
 #-------------------------------------------------
-#
+
+function decohereX(state,i)
+    n=size(state.tab,1)÷2
+    Xi=zeros(UInt8,2n)
+    Xi[i]=0x01
+    noncommuting=findall(x->x==0x01,commute(state.tab[:,1:r],Xi))
+    if length(noncommuting)==0
+        return 0x00
+    else
+        pivotIdx=noncommuting[1]
+#         after this for loop, we would have a valid stabilizer tableau where
+#         where only one stabilizer anticommutes with X_i
+        
+        for j in noncommuting[2:end]
+            addCols(state,pivotIdx,j)
+#             this is needed to keep the stabilizer/destabilizer valid
+            addCols(state,j+n,pivotIdx+n)  
+        end
+        
+        swapCols(state,pivotIdx,r)
+        swapCols(state,pivotIdx+n,r+n)
+        
+        state.rank-=1
+        return 0x01
+    end
+end
+
+
+
