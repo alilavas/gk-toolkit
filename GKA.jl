@@ -247,4 +247,37 @@ function zProductState(n)
     state.tab[1:n,1+n:2n]=Matrix{UInt8}(I,n,n)
     return state
 end
+#-------------------------------------------------
+#-------------------------------------------------
+
+# function applyUnitary(state,u,uphase,indices)
+# #     applies unitary gate "u" to qubits with indexs given by "indices"
+# #     u is assumed to be given in the following form. say length indices =k,
+# #     i.e. u acts on k qubits. Then u is a 2k x 2k bit matrix where the first
+# #     k columns are images of X1,...,Xk in the form of Pauli strings (bit 
+# #     strings of length 2k) and the rest of the columns (k+1 to 2k) are 
+# #     the images of Z1,...,Zk.
     
+#     n=size(state.tab,1)÷2
+
+#     for i=1:size(stab,1)
+#         js=findall(isequal(0x01),@view stab[i,[indices;indices.+n]])
+#         if length(js)==0 continue end
+
+#         img=u[:,js[1]]
+#         sign=usign[js[1]]
+
+#         for j in js[2:end]
+#             sign⊻=usign[j]⊻ productsign(img,u[:,j])
+#             img.⊻=u[:,j]
+#         end
+
+#         stabsign[i]⊻=sign
+#         stab[i,[indices;indices.+n]]=img
+#     end
+#     return
+# end
+
+#-------------------------------------------------
+#-------------------------------------------------
+#
