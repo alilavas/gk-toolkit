@@ -99,7 +99,10 @@ end
 #-------------------------------------------------
 #-------------------------------------------------
 function measure(state::StateDensityMatrix,g,gphase=0x00,verbose=false)
-    
+    verbose && printstyled("\n measuring: $g\n";color=:blue)
+    verbose && println("state has originally tableau:")
+    verbose && display(state.tab)
+    verbose && println("with ranke:$(state.rank) and phases:$(state.phases)")
     #measure g on the state. If outcome is true, gphase should have been provided
     
     n=size(state.tab,1)÷2
@@ -165,7 +168,12 @@ function measure(state::StateDensityMatrix,g,gphase=0x00,verbose=false)
             if sum(g)==0
                 return 1
             else
-                println("ERROR: SOMETHING IS VERY WRONG: g commutes with everything!")
+                printstyled("ERROR: SOMETHING IS VERY WRONG: g commutes with everything!\n";color = :red)
+                println("g:")
+                display(g)
+                println("tab:")
+                display(state.tab)
+                println("rank:$(state.rank)")
                 return
             end
         end
@@ -180,21 +188,34 @@ function measure(state::StateDensityMatrix,g,gphase=0x00,verbose=false)
         
         if g!=op
             
-            println("ERROR: SOMETHING IS VERY WRONG:\n $g \n is not equal to\n $op")
+            printstyled("ERROR: SOMETHING IS VERY WRONG:\n $g \n is not equal to\n $op\n";color = :red)
+            println("g:")
+            display(g)
+            println("tab:")
+            display(state.tab)
+            println("rank:$(state.rank)")
         end
         if gphase==ph
             return 0x00
         elseif gphase==(ph+0x02)%0x04
             return 0x02
         else
-            println("ERROR: SOMETHING IS VERY WRONG. MAYBE YOU ARE MEASURING AN ANTI-HERMITIONA OPERATOR")
+            printstyled("ERROR: SOMETHING IS VERY WRONG. MAYBE YOU ARE MEASURING AN ANTI-HERMITIONA OPERATOR\n";color = :red)
             return 
         end
             
     else
+        verbose && println("g anti-commutes with a stabilizer: $(state.tab[:,noncommuting[1]])")
         #the measurement is not compatible with the stabilizer group. the outcome is random
         pivotIdx=noncommuting[1]
         for j in noncommuting[2:end]
+            addCols(state,pivotIdx,j)
+#             the following line is not necassary because the destabilizer for pivotIdx is going to be descarded
+#             addCols(state,j+n,pivotIdx+n)     
+        end
+        
+        #update the out-of-group stabilizers, so tehy commute with the newly added stabilizer
+        for j in findall(x->x==0x01,commute(state.tab[:,r+1:n],g)).+r
             addCols(state,pivotIdx,j)
 #             the following line is not necassary because the destabilizer for pivotIdx is going to be descarded
 #             addCols(state,j+n,pivotIdx+n)     
