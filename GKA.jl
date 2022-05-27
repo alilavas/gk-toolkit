@@ -341,8 +341,7 @@ function forceMeasure(state,g,gphase=0x00,verbose=false)
         if gphase==ph
             return 0x00
         elseif gphase==(ph+0x02)%0x04
-            printstyled("Warning: THE STATE HAD NO AMPLITITUDE IN THE FORCED SUBSPACE.\n";color = :red)
-            state=0
+                printstyled("WARNING: THE STATE HAD NO AMPLITITUDE IN THE FORCED SUBSPACE. NOTHING WILL BE DONE\n";color = :red)
             return 0x00
         else
             printstyled("ERROR: SOMETHING IS VERY WRONG. MAYBE YOU ARE MEASURING AN ANTI-HERMITIONA OPERATOR\n";color = :red)
@@ -432,6 +431,7 @@ end
 
 function decohereX(state,i)
     n=size(state.tab,1)÷2
+    r=state.rank
     Xi=zeros(UInt8,2n)
     Xi[i]=0x01
     noncommuting=findall(x->x==0x01,commute(state.tab[:,1:r],Xi))
@@ -456,3 +456,81 @@ function decohereX(state,i)
     end
 end
 
+#-------------------------------------------------
+#-------------------------------------------------
+
+function expval(state,g,gphase)
+    verbose && printstyled("\n calculating expectation value of: $g\n";color=:blue)
+    verbose && println("state has the following tableau:")
+    verbose && display(state.tab)
+    verbose && println("with rank:$(state.rank) and phases:$(state.phases)")
+    
+    n=size(state.tab,1)÷2
+    r=state.rank
+    noncommuting=findall(x->x==0x01,commute(state.tab[:,1:r],g))
+
+    if length(noncommuting)==0
+        verbose && println("no noncommuting in-group stabilizer")
+        #check whether g is in the stabilizer group
+        
+        noncommuting_S=findall(x->x==0x01,commute(state.tab[:,r+1:n],g)).+r
+        if length(noncommuting_S)!=0
+            verbose && println("a non-commuting out-of-group stabilizer has been found: g is not in the stabilizer group")
+            return 0
+        end
+        verbose && println("no noncommuting out-of-group stabilizer has been found")
+        
+        noncommuting_D=findall(x->x==0x01,commute(state.tab[:,r+1+n:2n],g)).+(r+n)
+        if length(noncommuting_D)!=0
+            verbose && println("a non-commuting out-of-group destabilizer has been found: g is not in the stabilizer group")
+            return 0
+        end
+        verbose && println("no noncommuting out-of-group destabilizer.\n g is in the stabilizer group")
+
+        
+#         +-g is in the stabilizer group, so the measurement outcome is deterministic and rank remains the same
+        noncommuting_DS=findall(x->x==0x01,commute(state.tab[:,1+n:r+n],g))
+        if length(noncommuting_DS)==0
+            if sum(g)==0
+                return 1
+            else
+                printstyled("ERROR: SOMETHING IS VERY WRONG: g commutes with everything!\n";color = :red)
+                println("g:")
+                display(g)
+                println("tab:")
+                display(state.tab)
+                println("rank:$(state.rank)")
+                return
+            end
+        end
+        ph=state.phases[noncommuting_DS[1]]
+        op=state.tab[:,noncommuting_DS[1]]
+        
+        for i in noncommuting_DS[2:end]
+            ph=ph+state.phases[i]+productsign(op,state.tab[:,i])
+            op=op.⊻state.tab[:,i]
+        end
+        ph=ph%0x04
+        
+        if g!=op
+            
+            printstyled("ERROR: SOMETHING IS VERY WRONG:\n $g \n is not equal to\n $op\n";color = :red)
+            println("g:")
+            display(g)
+            println("tab:")
+            display(state.tab)
+            println("rank:$(state.rank)")
+        end
+        if gphase==ph
+            return 0x00
+        elseif gphase==(ph+0x02)%0x04
+            return 0x02
+        else
+            printstyled("ERROR: SOMETHING IS VERY WRONG. MAYBE g IS NOT HERMITIONA\n";color = :red)
+            return 
+        end
+            
+    else
+        verbose && println("g anti-commutes with a stabilizer")
+        return 0
+    end
