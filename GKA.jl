@@ -8,14 +8,14 @@ include("z2algebra.jl")
 #-------------------------------------------------
 #-------------------------------------------------
 mutable struct StateDensityMatrix
-    #save the stabs in column major fomat. each column is a Pauli string. first n rows represent the X part
+    #save the stabs in column major format. each column is a Pauli string. first n rows represent the X part
     tab::Array{UInt8,2}
     phases::Array{UInt8}
     rank::Int
 end
 #-------------------------------------------------
 #-------------------------------------------------
-function productsign(a,b)
+function productSign(a,b)
     
     #returns sign of a*b, when written in the standard form.
     #*0x02 is needed since we represent -1 as 0x02 (0x01 is imaginary i)
@@ -35,7 +35,7 @@ end
 #-------------------------------------------------
 #-------------------------------------------------
 function commute(tab::Array{UInt8,2},g::Array{UInt8,1})
-    #whether rows of tab commute with g.
+    #whether columns of tab commute with g.
     n=length(g)÷2
     return (transpose(tab[n+1:2n,:])*g[1:n].+transpose(tab[1:n,:])*g[n+1:2n]).%0x02
     
@@ -47,7 +47,7 @@ function addCols(state::StateDensityMatrix,i,j)
     #replaces g_j with gi*g_j in the tableau. takes care of phases
     
     n=size(state.tab,1)÷2
-    state.phases[j]=(state.phases[j]+state.phases[i]+productsign(state.tab[:,j],state.tab[:,i]))%0x04
+    state.phases[j]=(state.phases[j]+state.phases[i]+productSign(state.tab[:,j],state.tab[:,i]))%0x04
     state.tab[:,j]=state.tab[:,j].⊻state.tab[:,i]
     return
     
@@ -180,7 +180,7 @@ function measure(state::StateDensityMatrix,g,gphase=0x00,verbose=false)
         op=state.tab[:,noncommuting_DS[1]]
         
         for i in noncommuting_DS[2:end]
-            ph=ph+state.phases[i]+productsign(op,state.tab[:,i])
+            ph=ph+state.phases[i]+productSign(op,state.tab[:,i])
             op=op.⊻state.tab[:,i]
         end
         ph=ph%0x04
@@ -324,7 +324,7 @@ function forceMeasure(state,g,gphase=0x00,verbose=false)
         op=state.tab[:,noncommuting_DS[1]]
         
         for i in noncommuting_DS[2:end]
-            ph=ph+state.phases[i]+productsign(op,state.tab[:,i])
+            ph=ph+state.phases[i]+productSign(op,state.tab[:,i])
             op=op.⊻state.tab[:,i]
         end
         ph=ph%0x04
@@ -398,33 +398,61 @@ end
 #-------------------------------------------------
 #-------------------------------------------------
 
-# function applyUnitary(state,u,uphase,indices)
-# #     applies unitary gate "u" to qubits with indexs given by "indices"
-# #     u is assumed to be given in the following form. say length indices =k,
-# #     i.e. u acts on k qubits. Then u is a 2k x 2k bit matrix where the first
-# #     k columns are images of X1,...,Xk in the form of Pauli strings (bit 
-# #     strings of length 2k) and the rest of the columns (k+1 to 2k) are 
-# #     the images of Z1,...,Zk.
+function applyUnitary(pauliStr,u,uphase)
+#     applies unitary gate "u" to pauli string pauliStr
+#     u is assumed to be given in the following form. say pauliStr is defined on k qubits
+#     i.e. u acts on k qubits. Then u is a 2k x 2k bit matrix where the first
+#     k columns are images of X1,...,Xk in the form of Pauli strings (bit 
+#     strings of length 2k) and the rest of the columns (k+1 to 2k) are 
+#     the images of Z1,...,Zk.
     
-#     n=size(state.tab,1)÷2
+    is=findall(isequal(0x01),pauliStr)
+    if length(is)==0 return pauliStr end
 
-#     for i=1:size(stab,1)
-#         js=findall(isequal(0x01),@view stab[i,[indices;indices.+n]])
-#         if length(js)==0 continue end
+    img=u[:,is[1]]
+    phase=uphase[is[1]]
 
-#         img=u[:,js[1]]
-#         sign=usign[js[1]]
+    for i in is[2:end]
+        phase+=uphase[i]+ productSign(img,u[:,i])
+        img.⊻=u[:,i]
+    end
 
-#         for j in js[2:end]
-#             sign⊻=usign[j]⊻ productsign(img,u[:,j])
-#             img.⊻=u[:,j]
-#         end
+    
+    
+    return img, phase%0x04
+end
 
-#         stabsign[i]⊻=sign
-#         stab[i,[indices;indices.+n]]=img
-#     end
-#     return
-# end
+#-------------------------------------------------
+#-------------------------------------------------
+#-------------------------------------------------
+
+function applyUnitary(state,u,uphase,indices)
+#     applies unitary gate "u" to qubits with indexs given by "indices"
+#     u is assumed to be given in the following form. say length indices =k,
+#     i.e. u acts on k qubits. Then u is a 2k x 2k bit matrix where the first
+#     k columns are images of X1,...,Xk in the form of Pauli strings (bit 
+#     strings of length 2k) and the rest of the columns (k+1 to 2k) are 
+#     the images of Z1,...,Zk.
+    
+    n=size(state.tab,1)÷2
+
+    for j in 1:size(state.tab,2)
+        is=findall(isequal(0x01),state.tab[[indices;indices.+n],j])
+        if length(is)==0 continue end
+
+        img=u[:,is[1]]
+        phase=uphase[is[1]]
+
+        for i in is[2:end]
+            phase+=uphase[i]+ productSign(img,u[:,i])
+            img.⊻=u[:,i]
+        end
+
+        state.phases[j]=(state.phases[j]+phase)%0x04
+        state.tab[[indices;indices.+n],j]=img
+    end
+    return
+end
 
 #-------------------------------------------------
 #-------------------------------------------------
@@ -459,7 +487,7 @@ end
 #-------------------------------------------------
 #-------------------------------------------------
 
-function expval(state,g,gphase)
+function expval(state,g,gphase=0x00, verbose=false)
     verbose && printstyled("\n calculating expectation value of: $g\n";color=:blue)
     verbose && println("state has the following tableau:")
     verbose && display(state.tab)
@@ -507,7 +535,7 @@ function expval(state,g,gphase)
         op=state.tab[:,noncommuting_DS[1]]
         
         for i in noncommuting_DS[2:end]
-            ph=ph+state.phases[i]+productsign(op,state.tab[:,i])
+            ph=ph+state.phases[i]+productSign(op,state.tab[:,i])
             op=op.⊻state.tab[:,i]
         end
         ph=ph%0x04
@@ -522,9 +550,9 @@ function expval(state,g,gphase)
             println("rank:$(state.rank)")
         end
         if gphase==ph
-            return 0x00
+            return 1
         elseif gphase==(ph+0x02)%0x04
-            return 0x02
+            return -1
         else
             printstyled("ERROR: SOMETHING IS VERY WRONG. MAYBE g IS NOT HERMITIONA\n";color = :red)
             return 
@@ -534,3 +562,179 @@ function expval(state,g,gphase)
         verbose && println("g anti-commutes with a stabilizer")
         return 0
     end
+end
+
+#-------------------------------------------------
+#-------------------------------------------------
+#-------------------------------------------------
+function allCliffordUnitaries_withPhase(n)
+    #generates all n-qubit unitaries, as an array of {u,uphase}. u is a 2nx2n matrix,
+    #where th j'th column is the image of X_j for j<=n and image of Z_{j-n} for j>n. uphase is a 
+    #an array of length 2n where the j'th element is a phase which makes u[:,j] Hermition. 
+    us_withPhase=[]
+    us=allCliffordUnitaries(n)
+    for u in us
+        uphase=zeros(UInt8,2n)
+        for j in 1:2n
+            if productSign(u[:,j],u[:,j])==0x02
+                uphase[j]=0x01
+            end
+        end
+        push!(us_withPhase,(u,uphase))
+    end
+    return us_withPhase
+end
+#-------------------------------------------------
+#-------------------------------------------------
+#-------------------------------------------------
+
+function allCliffordUnitaries(n)
+
+    #generates all n-qubit Clifford unitaries up to phases. It's only viable for n<=3
+    #though. after that it gets too large a set.
+
+    #It uses the algorithem that is  described in Appendix A.c of arXiv:1901.08092
+
+    #outputs an array of u, for each u, the j'th column is the image of X_j for 1<=j<=n 
+    #and the image of Z_{j-n} for n+1<=j<=2n
+
+    if n==1
+        us=[]
+        p=allPossibleBitAssignments(4)
+        for j in 1:size(p,2)
+            if commute(p[1:2,j],p[3:4,j])==0x01
+                push!(us,reshape(p[:,j],2,2))
+            end
+        end
+        return us
+    else
+        us=[]
+        ws=allCliffordUnitaries(n-1)
+        v=zeros(UInt8,2n,2n)
+        v[1,1]=1
+        v[n+1,n+1]=1
+        p=allPossibleBitAssignments(4n)
+        for j in 1:size(p,2)
+            x1p=p[1:2n,j]
+            z1p=p[2n+1:end,j]
+            if commute(x1p,z1p)==0x01
+                uprime=extendToUnitary(x1p,z1p)
+                for w in ws
+                    v[[2:n;n+2:2n],[2:n;n+2:2n]]=w
+                    u=(v*uprime).%0x02
+                    push!(us,u)
+                end
+            end
+        end
+        return us
+    end
+    return
+end
+
+#-------------------------------------------------
+#-------------------------------------------------
+function extendToUnitary(x1p,z1p)
+    #return a unitary which maps X_1 to the given x1p & Z_1 to the given z1p
+    #the first n columns are images of X_i's and the rest are images of the Z_i's
+
+    n=length(x1p)÷2
+
+    if commute(x1p,z1p)==0x00
+        print("Error: first vecotrs aren't anti-commuting!")
+        return nothing
+    end
+
+    #we start by a complete basis for Paulis and replace a pair with x1p,z1p.
+    #to choose which pair to replace we find a pair that appear non-trivially
+    #in x1p & z1p.
+    #this makes sure that after replacement xbasis \cup zbasis still forms a complete set for Pauli strings on n qubits.
+
+    #the j'th column represents X_j
+    xbasis=vcat(Matrix{UInt8}(1I,n,n),zeros(UInt8,n,n))
+
+    #the j'th column represents Z_j
+    zbasis=vcat(zeros(UInt8,n,n),Matrix{UInt8}(1I,n,n))
+
+    dependentindex=findfirst(i->commute(x1p[[i,i+n]],z1p[[i,i+n]])==0x01,1:n)
+    xbasis[:,dependentindex]=x1p
+    zbasis[:,dependentindex]=z1p
+    z2swapcol!(xbasis,1,dependentindex)
+    z2swapcol!(zbasis,1,dependentindex)
+
+
+    #we now update other basises accordingly, such that [xi,xj]=[zi,zj]=0
+    #and {xi,zj}=0
+
+    for i=2:n
+
+        #finding Zi, assuming the commutation relations are satisfied by
+        #xj,zj pairs for j<i.
+
+
+        #make sure Zi commutes with Xj for j<i
+        for j=1:i-1
+            if commute(zbasis[:,i],xbasis[:,j])==0x01
+                zbasis[:,i].⊻=zbasis[:,j]
+            end
+        end
+
+        #make sure Zi commutes with Zj for j<i
+        for j=1:i-1
+            if commute(zbasis[:,i],zbasis[:,j])==0x01
+                zbasis[:,i].⊻=xbasis[:,j]
+            end
+        end
+
+
+        #find an Xj in the remaining baisis vectors that doesn't commute with Zi
+        #and name it Xi
+        #first search among the remaing Xs
+
+        foundaPair=false
+        for j=i:n
+            if commute(zbasis[:,i],xbasis[:,j])==0x01
+                z2swapcol!(xbasis,j,i)
+                foundaPair=true
+                break
+            end
+        end
+        #if not found, search among the remaing Zs
+        if foundaPair==false
+            for j=i+1:n
+                if commute(zbasis[:,i],zbasis[:,j])==0x01
+                    #swap the two
+                    zbasis[:,j].⊻=@view xbasis[:,i]
+                    xbasis[:,i].⊻=@view zbasis[:,j]
+                    zbasis[:,j].⊻=@view xbasis[:,i]
+                    foundaPair=true
+                    break
+                end
+            end
+        end
+
+        if foundaPair==false
+            print("Error")
+            return nothing
+        end
+
+        #make sure Xi commutes with Xj for j<i
+        for j=1:i-1
+            if commute(xbasis[:,i],xbasis[:,j])==0x01
+                xbasis[:,i].⊻=zbasis[:,j]
+            end
+        end
+
+        #make sure Xi commutes with Zj for j<i
+        for j=1:i-1
+            if commute(xbasis[:,i],zbasis[:,j])==0x01
+                xbasis[:,i].⊻=xbasis[:,j]
+            end
+        end
+
+    end
+
+    return hcat(xbasis,zbasis)
+end
+
+#-------------------------------------------------
+#-------------------------------------------------

@@ -76,13 +76,13 @@ end
 
 #-------------------------------------------------
 #-------------------------------------------------
-function possibleAssignments(k)
-    #returns  all possible bit strings of k bits, arranged in a 2^k x k matrix.
-    ns=zeros(Int8,2^k,k)
-    for i in 1:2^k
-        for j in 1:k
-            ns[i,j]=(i÷2^(j-1))%2
-        end
+function allPossibleBitAssignments(k)
+    #returns  all possible bit strings of k bits, arranged in a k x 2^k matrix.
+    # the j'th column for 1<= j <= 2^k is bassically j-1 written in binary
+    ns=zeros(UInt8,k,2^k)
+    for i in 1:k, j in 0:2^k-1
+        
+            ns[i,j+1]=(j÷2^(i-1))%2
     end
     return ns
 end
