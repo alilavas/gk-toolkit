@@ -9,6 +9,7 @@ include("z2algebra.jl")
 #-------------------------------------------------
 mutable struct StateDensityMatrix
     #save the stabs in column major format. each column is a Pauli string. first n rows represent the X part
+    #first r=rank columns are the stabilizers. the destabilizer associated to the i'th stabilizer is in n+i'th column.
     tab::Array{UInt8,2}
     phases::Array{UInt8}
     rank::Int
@@ -54,6 +55,16 @@ function addCols(state::StateDensityMatrix,i,j)
 end
 #-------------------------------------------------
 #-------------------------------------------------
+function addCols(stab::Array{UInt8,2},i,j)
+    
+    #replaces g_j with gi*g_j in the stab matrix.
+    
+    stab[:,j]=stab[:,j].⊻ stab[:,i]
+    return
+    
+end
+#-------------------------------------------------
+#-------------------------------------------------
 function swapCols(state::StateDensityMatrix,i,j)
     
     #swaps stabilizer i and j. takes care of phases.
@@ -68,6 +79,18 @@ function swapCols(state::StateDensityMatrix,i,j)
     state.phases[j]=temp_phase
     
     return
+end
+#-------------------------------------------------
+#-------------------------------------------------
+function swapCols(stab::Array{UInt8,2},i,j)
+    
+    #swaps columns i and j in a matrix stab.
+    
+    temp_col=stab[:,i]
+    
+    stab[:,i]=stab[:,j]
+    stab[:,j]=temp_col
+    return stab
 end
 #-------------------------------------------------
 #-------------------------------------------------
@@ -98,7 +121,7 @@ function insertStabilizer(state::StateDensityMatrix,g,gphase,i)
 end
 #-------------------------------------------------
 #-------------------------------------------------
-function measure(state::StateDensityMatrix,g,gphase=0x00,verbose=false)
+function measure(state::StateDensityMatrix,g,gphase=0x00,verbose=false; evaluate_outcome=false)
     verbose && printstyled("\n measuring: $g\n";color=:blue)
     verbose && println("state has originally tableau:")
     verbose && display(state.tab)
@@ -162,6 +185,9 @@ function measure(state::StateDensityMatrix,g,gphase=0x00,verbose=false)
 
         
 #         +-g is in the stabilizer group, so the measurement outcome is deterministic and rank remains the same
+        if evaluate_outcome==false
+            return
+        end
         noncommuting_DS=findall(x->x==0x01,commute(state.tab[:,1+n:r+n],g))
         if length(noncommuting_DS)==0
             if sum(g)==0
@@ -407,7 +433,7 @@ function applyUnitary(pauliStr,u,uphase)
 #     the images of Z1,...,Zk.
     
     is=findall(isequal(0x01),pauliStr)
-    if length(is)==0 return pauliStr end
+    if length(is)==0 return pauliStr, 0x00 end
 
     img=u[:,is[1]]
     phase=uphase[is[1]]
@@ -416,8 +442,6 @@ function applyUnitary(pauliStr,u,uphase)
         phase+=uphase[i]+ productSign(img,u[:,i])
         img.⊻=u[:,i]
     end
-
-    
     
     return img, phase%0x04
 end
@@ -571,6 +595,11 @@ function allCliffordUnitaries_withPhase(n)
     #generates all n-qubit unitaries, as an array of {u,uphase}. u is a 2nx2n matrix,
     #where th j'th column is the image of X_j for j<=n and image of Z_{j-n} for j>n. uphase is a 
     #an array of length 2n where the j'th element is a phase which makes u[:,j] Hermition. 
+
+    # NOTE:  it doesn't generate all possible phases. It just choose a phase that makes the image Hemritian
+    #        therfore, the number of gates in this function is exactly the same as the outputs
+    #        of  "allCliffordUnitaries" function.
+    
     us_withPhase=[]
     us=allCliffordUnitaries(n)
     for u in us
@@ -614,6 +643,7 @@ function allCliffordUnitaries(n)
         v[1,1]=1
         v[n+1,n+1]=1
         p=allPossibleBitAssignments(4n)
+
         for j in 1:size(p,2)
             x1p=p[1:2n,j]
             z1p=p[2n+1:end,j]
@@ -738,3 +768,300 @@ end
 
 #-------------------------------------------------
 #-------------------------------------------------
+function randomCliffordUnitary(n)
+
+    #generates a random n-qubit Clifford unitary 
+    #It uses the algorithem that is  described in Appendix A.c of arXiv:1901.08092
+    #outputs a 2nx2n matrix where the j'th column is the image of X_j for 1<=j<=n 
+    #and the image of Z_{j-n} for n+1<=j<=2n
+
+    if n==1
+        return rand(allCliffordUnitaries(1))
+    else
+        w=randomCliffordUnitary(n-1)
+        v=zeros(UInt8,2n,2n)
+        v[1,1]=1
+        v[n+1,n+1]=1
+
+
+        x1p=rand([0x00,0x01],2n)
+        z1p=rand([0x00,0x01],2n)
+        
+        while commute(x1p,z1p)==0x00
+            x1p=rand([0x00,0x01],2n)
+            z1p=rand([0x00,0x01],2n)
+        end
+
+        uprime=extendToUnitary(x1p,z1p)
+        
+        v[[2:n;n+2:2n],[2:n;n+2:2n]]=w
+        u=(v*uprime).%0x02
+
+        return u
+    end
+    return
+end
+#-------------------------------------------------
+#-------------------------------------------------
+#-------------------------------------------------
+function randomCliffordUnitary_withphase(n)
+    #generates a n-qubit random unitaries, with a compatible phase such that images of each Pauli is
+    #Hermition (but the phase is not randomized). u is a 2nx2n matrix,
+    #where th j'th column is the image of X_j for j<=n and image of Z_{j-n} for j>n. uphase is a 
+    #an array of length 2n where the j'th element is a phase which makes u[:,j] Hermition. 
+    u=randomCliffordUnitary(n)
+
+    uphase=zeros(UInt8,2n)
+    for j in 1:2n
+        if productSign(u[:,j],u[:,j])==0x02
+            uphase[j]=0x01
+        end
+    end
+    return (u,uphase)
+end
+#-------------------------------------------------
+#-------------------------------------------------
+
+function diagonalizePaulis(paulis)
+    # The input is an array of Pauli strings
+    # It outputs an equavalent set of paulis,
+    # couple_stabs, couple_destabs and sinlge_stabs
+    # such that elements of coupl_stabs and couple_destabs are 
+    # conjugate of each other (i'th element of one with the i'th element of the other)
+    # and elements of single_stabs commute with everything (do not have conjugate in paulis)
+
+
+    M=length(paulis)
+    if M==0
+        return
+    end
+    n=size(paulis[1],1)÷2
+
+    ptab=zeros(UInt8,2n,M)
+    for m in 1:M
+        ptab[:,m]=paulis[m]
+    end
+
+
+    couple_stabs=[]
+    couple_destabs=[]
+    sinlge_stabs=[]
+
+    i=1
+    while i<=M
+        noncommuting=findall(isequal(0x01),commute(ptab[:,i+1:M],ptab[:,i])).+i
+        if length(noncommuting)==0
+            push!(sinlge_stabs,ptab[:,i])
+            i+=1
+        else
+            pvt=noncommuting[1]
+            for j in noncommuting[2:end]
+                ptab[:,j]=(ptab[:,j].+ptab[:,pvt]).%2
+            end
+            swapCols(ptab,pvt,i+1)
+            noncommuting_d=findall(isequal(0x01),commute(ptab[:,i+2:M],ptab[:,i+1])).+(i+1)
+            if length(noncommuting_d)>0
+                for j in noncommuting_d
+                    ptab[:,j]=(ptab[:,j].+ptab[:,i]).%2
+                end
+            end
+            push!(couple_stabs,ptab[:,i])
+            push!(couple_destabs,ptab[:,i+1])
+            i=i+2
+        end
+    end
+
+
+    return couple_stabs, couple_destabs, sinlge_stabs
+end
+
+#-------------------------------------------------
+#-------------------------------------------------
+
+function extendToFullDestab(couple_stabs,couple_destabs,single_stabs)
+    # outputs a full destabilizer state whose first stabs (destabs) are 
+    # couple_stabs (couple_destabs) and then the next stabs are the single_stabs
+    
+    M=length(couple_stabs)
+    M_s=length(single_stabs)
+
+    if M!=0
+        n=length(couple_stabs[1])÷2
+    elseif M_s!=0
+        n=length(single_stabs[1])÷2
+    else
+        return -1
+    end
+    
+    state=zProductState(n)
+    for m in 1:M
+        forceMeasure(state,couple_destabs[m],0x00)
+        state.tab=explicitStab(state.tab,couple_destabs[m],m)
+        forceMeasure(state,couple_stabs[m],0x00)
+
+    end
+    for m in 1:M_s
+        forceMeasure(state,single_stabs[m],0x00)
+        state.tab=explicitStab(state.tab,single_stabs[m],M+m)
+    end
+    return state.tab
+end
+
+#-------------------------------------------------
+#-------------------------------------------------
+function explicitStab(stab,g,k)
+    # rewrite stab such that g is the k'th column of tab. 
+    # assumes that g is in the stabilizer group generated by stab
+    n=size(stab,1)÷2
+    dcm=decompose(g,stab)
+    if sum(dcm[n+1:2n])!=0
+        #g is not in the stabilizer group
+        return -1
+    end
+    idxs=findall(isequal(0x01),dcm)
+    pvt=idxs[1]
+    for i in idxs[2:end]
+        stab[:,pvt].⊻=stab[:,i]
+        stab[:,i+n].⊻=stab[:,pvt+n]
+    end
+
+    swapCols(stab,k,pvt)
+    swapCols(stab,k+n,pvt+n)
+
+    return stab
+end
+#-------------------------------------------------
+#-------------------------------------------------
+
+function randomizeDestabforSingles(tab,m_couple,m_single)
+    # outputs a full destabilizer state whose first stabs (destabs) are 
+    # couple_stabs (couple_destabs) and then the next stabs are the single_stabs
+    # whose conjugate destabs are randomized
+
+    n=size(tab,1)÷2
+
+    for m in m_couple+1:m_couple+m_single
+        if rand()<1/2
+            addCols(tab,m,m+n)
+        end
+        for mm in m+1:m_couple+m_single
+            if rand()<1/2
+                addCols(tab,mm,m+n)
+                addCols(tab,m,mm+n)
+            end
+        end
+        for mm in m_couple+m_single+1:n
+            coin=rand()
+            if coin<1/4
+                addCols(tab,mm,m+n)
+                addCols(tab,m,mm+n)
+            elseif coin<2/4
+                addCols(tab,mm+n,m+n)
+                addCols(tab,m,mm)
+            elseif coin<3/4
+                addCols(tab,mm,m+n)
+                addCols(tab,mm+n,m+n)
+                addCols(tab,m,mm)
+                addCols(tab,m,mm+n)
+            end
+        end
+    end
+
+    return tab
+end
+
+#-------------------------------------------------
+#-------------------------------------------------
+
+function decompose(p,basis)
+    #find the decomposition of p in terms of the basis in tab
+    #assumes basis is a destabilizer/unitary
+    n=size(basis,1)÷2
+    decomp=commute(basis,p)
+    return [decomp[n+1:2n];decomp[1:n]]
+end
+
+#-------------------------------------------------
+#-------------------------------------------------
+
+function inverseUnitary(tab)
+    # returns the inverse of a unitary
+    n=size(tab,1)÷2
+    return mapslices(x->decompose(x,tab),Matrix{UInt8}(I,2n,2n),dims=[1])
+end 
+
+#-------------------------------------------------
+#-------------------------------------------------
+
+function randomSymmetricClifford(paulis)
+    # paulis is an array pauli strings
+    # assumes the columns are linearly independent (Note that it should not includes identity)   
+
+    cs,cds,ss=diagonalizePaulis(paulis)
+
+    
+    tab1=extendToFullDestab(cs,cds,ss)
+    tab2=randomizeDestabforSingles(copy(tab1),length(cs),length(ss))
+
+    # display(tab1)
+    # display(tab2)
+
+    n=size(tab1,1)÷2
+    m=length(cs)+length(ss)
+
+    if m<n
+        w=Matrix{UInt8}(I,2n,2n)
+        w[[m+1:n;m+1+n:2n],[m+1:n;m+1+n:2n]]=randomCliffordUnitary(n-m)
+
+        return (tab2*w*inverseUnitary(tab1)).%0x02
+    else
+        return (tab2*inverseUnitary(tab1)).%0x02
+    end
+end
+
+#-------------------------------------------------
+#-------------------------------------------------
+
+function randomSymmetricClifford_withphase(paulis)
+    # paulis is a 2nxm matrix, where each column is pauli string
+    # assumes the columns are linearly independent (Note that it should not includes identity)   
+    # also returns a phase vector to make the columns of u Hemritian (does not randomize the phase)
+
+    u=randomSymmetricClifford(paulis)
+    n=size(u,1)÷2
+    uphase=zeros(UInt8,2n)
+    for j in 1:2n
+        if productSign(u[:,j],u[:,j])==0x02
+            uphase[j]=0x01
+        end
+    end
+    return (u,uphase)
+end
+
+#-------------------------------------------------
+#-------------------------------------------------
+
+function initGHZ(n)
+    #initialize a n-qubit ghz state
+
+    state=StateDensityMatrix(zeros(2n,2n),zeros(UInt8,2n),n)
+
+    #stabs:
+    #Z_i Z_i+1
+    for i in 1:n-1
+        state.tab[i+n:i+1+n,i].=0x01
+    end
+    #X_1 X_2...X_N
+    state.tab[1:n,n].=0x01
+
+
+    #destabs:
+    #X_1....X_i
+    for i in 1:n-1
+        state.tab[1:i,i+n].=0x01
+    end
+    #ZN
+    state.tab[n+n,n+n]=0x01
+
+    return state
+end
