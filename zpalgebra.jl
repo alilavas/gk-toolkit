@@ -29,6 +29,105 @@ end
 #-------------------------------------------------
 #-------------------------------------------------
 
+function extendedEuclideanAlg(a,b) 
+    r0=a
+    r1=b
+
+    s0=1
+    s1=0
+
+    t0=0
+    t1=1
+
+
+    r=r0%r1
+
+    q=(r0-r)÷r1
+    s=s0-q*s1
+    t=t0-q*t1
+
+    while r != 0
+        temp=r1
+        r1=r
+        r0=temp
+
+        r=r0%r1
+        q=(r0-r)÷r1
+
+        s0=s1
+        s1=s
+        s=s0-q*s1
+
+        t0=t1
+        t1=t
+        t=t0-q*t1
+        
+    end
+
+    return r1,s1,t1
+end
+#-------------------------------------------------
+#-------------------------------------------------
+
+
+function extendedEuclideanAlg(a,b,p) 
+    T=typeof(a)
+
+    r0=a
+    r1=b
+
+    s0=T(1)
+    s1=T(0)
+
+    t0=T(0)
+    t1=T(1)
+
+
+    r=r0%r1
+
+
+
+    q=(r0-r)÷r1
+    
+    s=mod(s0-q*s1,p)
+    t=mod(t0-q*t1,p)
+
+
+
+    while r != 0
+        temp=r1
+        r1=r
+        r0=temp
+
+        r=r0%r1
+        q=(r0-r)÷r1
+
+        s0=s1
+        s1=s
+        
+        t0=t1
+        t1=t
+        
+        s=mod(s0-q*s1,p)
+        t=mod(t0-q*t1,p)
+        
+    end
+
+    return r1,s1,t1
+end
+#-------------------------------------------------
+#-------------------------------------------------
+
+function inverse(a,p)
+    return extendedEuclideanAlg(a,p,p)[2]
+end
+
+#-------------------------------------------------
+#-------------------------------------------------
+
+
+
+
 function rank_p!(A,p)
     #find rank(A) in Z_p
     m,n=size(A)
@@ -39,7 +138,7 @@ function rank_p!(A,p)
             if A[i,j]!=0
                 for jj in (j+1):n
                     if A[i,jj]!=0
-                        A[i:end,jj]=mod.(@view A[i:end,jj].+ @view A[i:end,j].*(A[i,j]^(p-2)*(p-A[i,jj])),p)
+                        A[i:end,jj]=@views mod.( A[i:end,jj].+  A[i:end,j].*(inverse(A[i,j],p)*(p-A[i,jj])),p)
                     end
                 end
                 swapcol!(A,j,lastpivotcol+1,i)
